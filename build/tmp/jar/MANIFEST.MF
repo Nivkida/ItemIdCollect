@@ -1,0 +1,9 @@
+Manifest-Version: 1.0
+Specification-Title: itemidcollect
+Specification-Vendor: Nivkida
+Specification-Version: 1
+Implementation-Title: itemidcollect
+Implementation-Version: 1.0
+Implementation-Vendor: Nivkida
+Implementation-Timestamp: 2025-08-24T21:05:13+0300
+
