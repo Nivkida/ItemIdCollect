@@ -55,6 +55,8 @@ public class ItemCollectorScreen extends Screen {
     private Button modScrollRight;
     private int visibleModTabs = 6;
     private List<Component> currentHelpText = null;
+    private final List<Button> modTabButtons = new ArrayList<>();
+    private int modTabsAreaWidth;
 
     public ItemCollectorScreen() {
         super(Component.translatable("screen.itemidcollect.title"));
@@ -89,6 +91,7 @@ public class ItemCollectorScreen extends Screen {
         super.init();
 
         int leftAreaWidth = this.width - rightPanelWidth - margin * 2;
+        this.modTabsAreaWidth = leftAreaWidth;
         int computed = Math.max(10, Math.min(24, leftAreaWidth / cols));
         cellSize = Math.max(10, (int) (computed * 0.9));
 
@@ -195,18 +198,25 @@ public class ItemCollectorScreen extends Screen {
         int x = startX;
         int y = startY;
 
+        // Clear existing mod buttons
+        for (Button btn : modTabButtons) {
+            this.removeWidget(btn);
+        }
+        modTabButtons.clear();
+
         // Left scroll button
         modScrollLeft = Button.builder(Component.literal("◀"), b -> {
-            modTabStart = Math.max(0, modTabStart - visibleModTabs);
+            modTabStart = Math.max(0, modTabStart - 1);
             updateModTabButtons();
         }).bounds(x, y, 20, 16).build();
         this.addRenderableWidget(modScrollLeft);
+        modTabButtons.add(modScrollLeft);
         x += 22;
 
         // Calculate how many mod tabs we can show
         int modTabWidth = 70;
         int modTabSpacing = 2;
-        visibleModTabs = Math.min((leftAreaWidth - 44) / (modTabWidth + modTabSpacing), modList.size());
+        visibleModTabs = Math.min((leftAreaWidth - 44) / (modTabWidth + modTabSpacing), modList.size() - modTabStart);
 
         // Mod tabs
         for (int i = 0; i < visibleModTabs; i++) {
@@ -221,18 +231,21 @@ public class ItemCollectorScreen extends Screen {
                 selectedMod = modid;
                 saveConfig();
                 rebuildFilteredIfNeeded(true);
+                updateModTabButtons();
             }).bounds(x, y, modTabWidth, 16).build();
 
             this.addRenderableWidget(modBtn);
+            modTabButtons.add(modBtn);
             x += modTabWidth + modTabSpacing;
         }
 
         // Right scroll button
         modScrollRight = Button.builder(Component.literal("▶"), b -> {
-            modTabStart = Math.min(modList.size() - visibleModTabs, modTabStart + visibleModTabs);
+            modTabStart = Math.min(modList.size() - visibleModTabs, modTabStart + 1);
             updateModTabButtons();
         }).bounds(x, y, 20, 16).build();
         this.addRenderableWidget(modScrollRight);
+        modTabButtons.add(modScrollRight);
 
         // Update button states
         updateModTabButtons();
@@ -241,6 +254,43 @@ public class ItemCollectorScreen extends Screen {
     private void updateModTabButtons() {
         modScrollLeft.active = modTabStart > 0;
         modScrollRight.active = modTabStart + visibleModTabs < modList.size();
+
+        // Remove all mod tab buttons except scroll buttons
+        List<Button> buttonsToRemove = new ArrayList<>();
+        for (Button btn : modTabButtons) {
+            if (btn != modScrollLeft && btn != modScrollRight) {
+                buttonsToRemove.add(btn);
+                this.removeWidget(btn);
+            }
+        }
+        modTabButtons.removeAll(buttonsToRemove);
+
+        // Recreate mod tabs with updated selection
+        int x = margin + 22;
+        int y = 40;
+
+        int modTabWidth = 70;
+        int modTabSpacing = 2;
+
+        for (int i = 0; i < visibleModTabs; i++) {
+            final int idx = modTabStart + i;
+            if (idx >= modList.size()) break;
+
+            String modid = modList.get(idx);
+            String displayName = modid.length() > 10 ? modid.substring(0, 10) + "..." : modid;
+            Component label = Component.literal(modid.equals(selectedMod) ? "[" + displayName + "]" : displayName);
+
+            Button modBtn = Button.builder(label, b -> {
+                selectedMod = modid;
+                saveConfig();
+                rebuildFilteredIfNeeded(true);
+                updateModTabButtons();
+            }).bounds(x, y, modTabWidth, 16).build();
+
+            this.addRenderableWidget(modBtn);
+            modTabButtons.add(modBtn);
+            x += modTabWidth + modTabSpacing;
+        }
     }
 
     private void exportTxt() {
@@ -453,23 +503,36 @@ public class ItemCollectorScreen extends Screen {
         int hovered = getIndexAt(mouseX, mouseY);
         int contentY = rightY + rightPanelPadding + 14;
         int lineH = this.font.lineHeight + 2;
+        int maxTextWidth = rightW - rightPanelPadding * 2;
 
         if (hovered != -1 && hovered < filtered.size()) {
             Item item = filtered.get(hovered);
             ItemStack stack = new ItemStack(item);
-            List<String> info = buildDetailedInfo(item, stack);
+            List<Component> info = buildDetailedInfo(item, stack);
 
-            for (String line : info) {
+            for (Component line : info) {
                 if (contentY > rightY + rightH - 20) break;
-                g.drawString(this.font, line, rightX + rightPanelPadding, contentY, 0xFFFFFF, false);
-                contentY += lineH;
+
+                // Split long lines into multiple lines
+                List<Component> wrappedLines = wrapText(line, maxTextWidth);
+                for (Component wrappedLine : wrappedLines) {
+                    if (contentY > rightY + rightH - 20) break;
+                    g.drawString(this.font, wrappedLine, rightX + rightPanelPadding, contentY, 0xFFFFFF, false);
+                    contentY += lineH;
+                }
             }
         } else if (currentHelpText != null) {
             // Отображаем текст помощи вместо стандартного сообщения
             for (Component line : currentHelpText) {
                 if (contentY > rightY + rightH - 20) break;
-                g.drawString(this.font, line, rightX + rightPanelPadding, contentY, 0xBBBBBB, false);
-                contentY += lineH;
+
+                // Split long lines into multiple lines
+                List<Component> wrappedLines = wrapText(line, maxTextWidth);
+                for (Component wrappedLine : wrappedLines) {
+                    if (contentY > rightY + rightH - 20) break;
+                    g.drawString(this.font, wrappedLine, rightX + rightPanelPadding, contentY, 0xBBBBBB, false);
+                    contentY += lineH;
+                }
             }
         } else {
             // Стандартное сообщение, когда нет наведения
@@ -481,48 +544,94 @@ public class ItemCollectorScreen extends Screen {
 
             for (Component line : help) {
                 if (contentY > rightY + rightH - 20) break;
-                g.drawString(this.font, line, rightX + rightPanelPadding, contentY, 0xBBBBBB, false);
-                contentY += lineH;
+
+                // Split long lines into multiple lines
+                List<Component> wrappedLines = wrapText(line, maxTextWidth);
+                for (Component wrappedLine : wrappedLines) {
+                    if (contentY > rightY + rightH - 20) break;
+                    g.drawString(this.font, wrappedLine, rightX + rightPanelPadding, contentY, 0xBBBBBB, false);
+                    contentY += lineH;
+                }
             }
         }
+    }
+
+    private List<Component> wrapText(Component text, int maxWidth) {
+        List<Component> lines = new ArrayList<>();
+        String plainText = text.getString();
+        StringBuilder currentLine = new StringBuilder();
+
+        for (String word : plainText.split(" ")) {
+            String testLine = currentLine.length() > 0 ? currentLine + " " + word : word;
+
+            if (this.font.width(testLine) > maxWidth) {
+                if (currentLine.length() > 0) {
+                    lines.add(Component.literal(currentLine.toString()));
+                    currentLine = new StringBuilder(word);
+                } else {
+                    // Single word is too long, split it
+                    int splitIndex = 0;
+                    for (int i = 1; i <= word.length(); i++) {
+                        if (this.font.width(word.substring(0, i)) > maxWidth) {
+                            lines.add(Component.literal(word.substring(0, splitIndex)));
+                            currentLine = new StringBuilder(word.substring(splitIndex));
+                            break;
+                        }
+                        splitIndex = i;
+                    }
+                    if (splitIndex == word.length()) {
+                        lines.add(Component.literal(word));
+                        currentLine = new StringBuilder();
+                    }
+                }
+            } else {
+                currentLine = new StringBuilder(testLine);
+            }
+        }
+
+        if (currentLine.length() > 0) {
+            lines.add(Component.literal(currentLine.toString()));
+        }
+
+        return lines;
     }
 
     private static boolean isMouseOver(int mouseX, int mouseY, int x, int y, int w, int h) {
         return mouseX >= x && mouseX < x + w && mouseY >= y && mouseY < y + h;
     }
 
-    private List<String> buildDetailedInfo(Item item, ItemStack stack) {
-        List<String> lines = new ArrayList<>();
+    private List<Component> buildDetailedInfo(Item item, ItemStack stack) {
+        List<Component> lines = new ArrayList<>();
 
         // Display name
-        lines.add(stack.getHoverName().getString());
+        lines.add(stack.getHoverName().copy().withStyle(ChatFormatting.WHITE));
 
         // ID
         ResourceLocation id = ForgeRegistries.ITEMS.getKey(item);
-        lines.add("ID: " + (id == null ? "unknown" : id.toString()));
+        lines.add(Component.literal("ID: " + (id == null ? "unknown" : id.toString())).withStyle(ChatFormatting.GRAY));
 
         // Model path
-        if (id != null) lines.add("Model path: " + id.getNamespace() + ":item/" + id.getPath());
+        if (id != null) lines.add(Component.literal("Model path: " + id.getNamespace() + ":item/" + id.getPath()).withStyle(ChatFormatting.GRAY));
 
         // Basic properties
-        lines.add("Max stack: " + item.getMaxStackSize(new ItemStack(item)));
+        lines.add(Component.literal("Max stack: " + item.getMaxStackSize(new ItemStack(item))).withStyle(ChatFormatting.GRAY));
 
         int maxDamage = stack.getMaxDamage();
-        if (maxDamage > 0) lines.add("Max damage: " + maxDamage);
+        if (maxDamage > 0) lines.add(Component.literal("Max damage: " + maxDamage).withStyle(ChatFormatting.GRAY));
 
         // Armor slot
         if (item instanceof ArmorItem a) {
             EquipmentSlot slot = a.getType().getSlot();
-            lines.add("Armor slot: " + a.getType().getName() + " (" + slot.getName() + ")");
+            lines.add(Component.literal("Armor slot: " + a.getType().getName() + " (" + slot.getName() + ")").withStyle(ChatFormatting.GRAY));
         }
 
         // Food info
         if (item.isEdible()) {
-            lines.add("Edible: yes");
+            lines.add(Component.literal("Edible: yes").withStyle(ChatFormatting.GRAY));
             try {
                 var props = item.getFoodProperties();
                 if (props != null) {
-                    lines.add(" Nutrition: " + props.getNutrition() + ", Saturation: " + props.getSaturationModifier());
+                    lines.add(Component.literal(" Nutrition: " + props.getNutrition() + ", Saturation: " + props.getSaturationModifier()).withStyle(ChatFormatting.GRAY));
                 }
             } catch (Throwable ignored) {
             }
@@ -531,8 +640,8 @@ public class ItemCollectorScreen extends Screen {
         // Enchantments
         Map<Enchantment, Integer> ench = EnchantmentHelper.getEnchantments(stack);
         if (!ench.isEmpty()) {
-            lines.add("Enchantments:");
-            ench.forEach((en, lvl) -> lines.add(" " + en.getDescriptionId() + " lvl " + lvl));
+            lines.add(Component.literal("Enchantments:").withStyle(ChatFormatting.GRAY));
+            ench.forEach((en, lvl) -> lines.add(Component.literal(" " + en.getDescriptionId() + " lvl " + lvl).withStyle(ChatFormatting.GRAY)));
         }
 
         // NBT preview
@@ -540,17 +649,17 @@ public class ItemCollectorScreen extends Screen {
         if (tag != null && !tag.isEmpty()) {
             String s = tag.toString();
             if (s.length() > 800) s = s.substring(0, 800) + "...";
-            lines.add("NBT: " + s);
+            lines.add(Component.literal("NBT: " + s).withStyle(ChatFormatting.GRAY));
 
             // Common NBT tags
-            if (tag.contains("CustomModelData")) lines.add("CustomModelData: " + tag.getInt("CustomModelData"));
-            if (tag.contains("Unbreakable")) lines.add("Unbreakable: " + tag.getBoolean("Unbreakable"));
-            if (tag.contains("Damage")) lines.add("Damage (nbt): " + tag.getInt("Damage"));
+            if (tag.contains("CustomModelData")) lines.add(Component.literal("CustomModelData: " + tag.getInt("CustomModelData")).withStyle(ChatFormatting.GRAY));
+            if (tag.contains("Unbreakable")) lines.add(Component.literal("Unbreakable: " + tag.getBoolean("Unbreakable")).withStyle(ChatFormatting.GRAY));
+            if (tag.contains("Damage")) lines.add(Component.literal("Damage (nbt): " + tag.getInt("Damage")).withStyle(ChatFormatting.GRAY));
         }
 
         // Other flags
-        if (stack.isEnchanted()) lines.add("Has enchantments");
-        if (stack.hasCustomHoverName()) lines.add("Has custom name");
+        if (stack.isEnchanted()) lines.add(Component.literal("Has enchantments").withStyle(ChatFormatting.GRAY));
+        if (stack.hasCustomHoverName()) lines.add(Component.literal("Has custom name").withStyle(ChatFormatting.GRAY));
 
         return lines;
     }
@@ -583,5 +692,11 @@ public class ItemCollectorScreen extends Screen {
             }
         }
         return super.mouseClicked(mouseX, mouseY, button);
+    }
+
+    @Override
+    public void onClose() {
+        saveConfig();
+        super.onClose();
     }
 }
