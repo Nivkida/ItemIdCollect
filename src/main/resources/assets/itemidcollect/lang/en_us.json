@@ -24,5 +24,7 @@
   "hint.click_to_toggle": "Click to toggle selection",
   "panel.details.empty_line1": "Hover over an item",
   "panel.details.empty_line2": "to see details",
-  "panel.details.empty_line3": "Click on an item to add/remove from export list"
+  "panel.details.empty_line3": "Click on an item to add/remove from export list",
+  "status.scroll_position": "Position: %d/%d",
+  "tooltip.scrollbar": "Scroll item list"
 }

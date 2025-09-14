@@ -28,7 +28,7 @@ public class ItemCollectorScreen extends Screen {
     private int rows;
     private int cellSize = 20;
     private final int margin = 16;
-    private int startIndex = 0;
+    private int scrollOffset = 0;
     private EditBox fileNameField;
     private EditBox idSearchBox;
     private int fileFieldX, fileFieldY;
@@ -56,6 +56,14 @@ public class ItemCollectorScreen extends Screen {
     private static final int HIGHLIGHT_COLOR = 0x66FFFFFF;
     private static final int BORDER_COLOR = 0xFF555555;
     private static final int SELECTED_COLOR = 0x8033AA33;
+
+    // Scroll variables
+    private int totalRows = 0;
+    private boolean isScrolling = false;
+    private int scrollbarWidth = 6;
+    private int scrollbarHeight = 0;
+    private int scrollbarX, scrollbarY;
+    private int scrollbarDragYOffset = 0;
 
     public ItemCollectorScreen() {
         super(Component.translatable("screen.itemidcollect.title"));
@@ -169,24 +177,9 @@ public class ItemCollectorScreen extends Screen {
         gridX0 = margin + (leftAreaWidth - (cols * cellSize)) / 2;
         gridY0 = currentY;
 
-        // Prev/Next buttons
-        int btnW = 90;
-        int btnSpacing = 12;
-        int btnY = gridY0 + rows * cellSize + 12;
-        int btnPanelWidth = btnW * 2 + btnSpacing;
-        int btnPanelX = gridX0 + (cols * cellSize - btnPanelWidth) / 2;
-
-        this.addRenderableWidget(createStyledButton(
-                Component.translatable("button.prev"),
-                b -> startIndex = Math.max(0, startIndex - cols * rows),
-                btnPanelX, btnY, btnW, 20
-        ));
-
-        this.addRenderableWidget(createStyledButton(
-                Component.translatable("button.next"),
-                b -> startIndex = Math.min(Math.max(0, filtered.size() - cols * rows), startIndex + cols * rows),
-                btnPanelX + btnW + btnSpacing, btnY, btnW, 20
-        ));
+        // Scrollbar position
+        scrollbarX = gridX0 + cols * cellSize + 2;
+        scrollbarY = gridY0;
 
         // Initial filter
         rebuildFilteredIfNeeded(true);
@@ -391,8 +384,13 @@ public class ItemCollectorScreen extends Screen {
             return true;
         }).collect(Collectors.toList());
 
-        int pageSize = cols * rows;
-        if (startIndex >= filtered.size()) startIndex = Math.max(0, filtered.size() - pageSize);
+        // Update scrollbar
+        totalRows = (int) Math.ceil((double) filtered.size() / cols);
+        scrollbarHeight = (int) ((double) rows / totalRows * (rows * cellSize));
+        scrollbarHeight = Math.max(20, scrollbarHeight); // Minimum height
+
+        // Reset scroll position
+        scrollOffset = 0;
     }
 
     @Override
@@ -426,15 +424,13 @@ public class ItemCollectorScreen extends Screen {
         }
 
         // Рисуем сетку предметов с улучшенным оформлением
-        int idx = startIndex;
         for (int r = 0; r < rows; r++) {
             for (int c = 0; c < cols; c++) {
+                int idx = (scrollOffset + r) * cols + c;
+                if (idx >= filtered.size()) continue;
+
                 int x = gridX0 + c * cellSize;
                 int y = gridY0 + r * cellSize;
-                if (idx >= filtered.size()) {
-                    idx++;
-                    continue;
-                }
                 Item item = filtered.get(idx);
                 ItemStack stack = new ItemStack(item);
 
@@ -456,7 +452,30 @@ public class ItemCollectorScreen extends Screen {
                 if (key != null && SelectedItemsManager.isSelected(key)) {
                     g.fill(x, y, x + cellSize, y + cellSize, SELECTED_COLOR);
                 }
-                idx++;
+            }
+        }
+
+        // Draw scrollbar if needed
+        if (totalRows > rows) {
+            // Scrollbar background
+            g.fill(scrollbarX, scrollbarY,
+                    scrollbarX + scrollbarWidth,
+                    scrollbarY + rows * cellSize,
+                    0x80000000);
+
+            // Scrollbar thumb
+            int scrollbarThumbY = scrollbarY + (int) ((double) scrollOffset / totalRows * rows * cellSize);
+            g.fill(scrollbarX, scrollbarThumbY,
+                    scrollbarX + scrollbarWidth,
+                    scrollbarThumbY + scrollbarHeight,
+                    0xFF888888);
+
+            // Draw scrollbar tooltip on hover
+            if (isMouseOverScrollbar(mouseX, mouseY)) {
+                int currentPosition = scrollOffset + 1;
+                int totalPosition = totalRows;
+                Component tooltip = Component.translatable("status.scroll_position", currentPosition, totalPosition);
+                g.renderTooltip(this.font, tooltip, mouseX, mouseY);
             }
         }
 
@@ -592,6 +611,16 @@ public class ItemCollectorScreen extends Screen {
         return mouseX >= x && mouseX < x + w && mouseY >= y && mouseY < y + h;
     }
 
+    private boolean isMouseOverScrollbar(int mouseX, int mouseY) {
+        return mouseX >= scrollbarX && mouseX <= scrollbarX + scrollbarWidth &&
+                mouseY >= scrollbarY && mouseY <= scrollbarY + rows * cellSize;
+    }
+
+    private boolean isMouseOverGrid(int mouseX, int mouseY) {
+        return mouseX >= gridX0 && mouseX <= gridX0 + cols * cellSize &&
+                mouseY >= gridY0 && mouseY <= gridY0 + rows * cellSize;
+    }
+
     private List<Component> buildDetailedInfo(Item item, ItemStack stack) {
         List<Component> lines = new ArrayList<>();
 
@@ -617,7 +646,7 @@ public class ItemCollectorScreen extends Screen {
 
         if (cx < 0 || cx >= cols || cy < 0 || cy >= rows) return -1;
 
-        int idx = startIndex + cy * cols + cx;
+        int idx = (scrollOffset + cy) * cols + cx;
         if (idx < 0 || idx >= filtered.size()) return -1;
 
         return idx;
@@ -625,6 +654,14 @@ public class ItemCollectorScreen extends Screen {
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        // Обработка клика по скроллбару
+        if (isMouseOverScrollbar((int) mouseX, (int) mouseY) && totalRows > rows) {
+            isScrolling = true;
+            scrollbarDragYOffset = (int) (mouseY - (scrollbarY + (double) scrollOffset / totalRows * rows * cellSize));
+            return true;
+        }
+
+        // Обработка клика по предметам
         int idx = getIndexAt((int) mouseX, (int) mouseY);
         if (idx != -1 && idx < filtered.size()) {
             Item item = filtered.get(idx);
@@ -636,6 +673,39 @@ public class ItemCollectorScreen extends Screen {
             }
         }
         return super.mouseClicked(mouseX, mouseY, button);
+    }
+
+    @Override
+    public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        if (isScrolling) {
+            isScrolling = false;
+            return true;
+        }
+        return super.mouseReleased(mouseX, mouseY, button);
+    }
+
+    @Override
+    public boolean mouseDragged(double mouseX, double mouseY, int button, double dragX, double dragY) {
+        if (isScrolling) {
+            double scrollableHeight = rows * cellSize - scrollbarHeight;
+            double dragPercent = (mouseY - scrollbarY - scrollbarDragYOffset) / scrollableHeight;
+            scrollOffset = (int) (dragPercent * (totalRows - rows));
+            scrollOffset = Math.max(0, Math.min(totalRows - rows, scrollOffset));
+            return true;
+        }
+        return super.mouseDragged(mouseX, mouseY, button, dragX, dragY);
+    }
+
+    @Override
+    public boolean mouseScrolled(double mouseX, double mouseY, double scrollDelta) {
+        // Прокрутка только если курсор над сеткой предметов или скроллбаром
+        if (isMouseOverGrid((int) mouseX, (int) mouseY) ||
+                isMouseOverScrollbar((int) mouseX, (int) mouseY)) {
+            int scrollAmount = (int) (-scrollDelta * 3); // Умножаем для более плавной прокрутки
+            scrollOffset = Math.max(0, Math.min(totalRows - rows, scrollOffset + scrollAmount));
+            return true;
+        }
+        return super.mouseScrolled(mouseX, mouseY, scrollDelta);
     }
 
     @Override

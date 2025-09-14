@@ -24,5 +24,7 @@
   "hint.click_to_toggle": "Кликните, чтобы выбрать/снять выделение",
   "panel.details.empty_line1": "Наведите на предмет,",
   "panel.details.empty_line2": "чтобы увидеть информацию",
-  "panel.details.empty_line3": "Кликните по предмету, чтобы добавить/убрать из списка экспорта"
+  "panel.details.empty_line3": "Кликните по предмету, чтобы добавить/убрать из списка экспорта",
+  "status.scroll_position": "Позиция: %d/%d",
+  "tooltip.scrollbar": "Прокрутка списка предметов"
 }
