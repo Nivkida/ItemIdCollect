@@ -11,12 +11,9 @@ import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.Style;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraft.nbt.CompoundTag;
-import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.item.*;
-import net.minecraft.world.item.enchantment.Enchantment;
-import net.minecraft.world.item.enchantment.EnchantmentHelper;
 import net.minecraftforge.registries.ForgeRegistries;
 
 import java.io.File;
@@ -29,40 +26,42 @@ public class ItemCollectorScreen extends Screen {
     private List<Item> filtered;
     private int cols;
     private int rows;
-    private int cellSize = 16;
-    private final int margin = 12;
+    private int cellSize = 20;
+    private final int margin = 16;
     private int startIndex = 0;
     private EditBox fileNameField;
     private EditBox idSearchBox;
-    private EditBox advancedFilterBox;
     private int fileFieldX, fileFieldY;
     private int searchFieldX, searchFieldY;
-    private int advFieldX, advFieldY;
     private final List<String> modList;
     private int modTabStart = 0;
     private String selectedMod = "all";
     private final LinkedHashMap<String, Boolean> typeState = new LinkedHashMap<>();
     private final Map<String, Button> typeButtons = new HashMap<>();
     private String lastIdSearch = "";
-    private String lastAdvanced = "";
     private String lastSelectedMod = "all";
     private Set<String> lastActiveTypes = new HashSet<>();
-    private final int rightPanelWidth = 300;
-    private final int rightPanelPadding = 8;
+    private final int rightPanelWidth = 320;
+    private final int rightPanelPadding = 12;
     private int gridY0;
     private int gridX0;
     private Button modScrollLeft;
     private Button modScrollRight;
-    private int visibleModTabs = 6;
+    private int visibleModTabs = 8;
     private List<Component> currentHelpText = null;
     private final List<Button> modTabButtons = new ArrayList<>();
     private int modTabsAreaWidth;
+    private int hoveredItemIndex = -1;
+    private static final int PANEL_BG_COLOR = 0xDD000000;
+    private static final int HIGHLIGHT_COLOR = 0x66FFFFFF;
+    private static final int BORDER_COLOR = 0xFF555555;
+    private static final int SELECTED_COLOR = 0x8033AA33;
 
     public ItemCollectorScreen() {
         super(Component.translatable("screen.itemidcollect.title"));
         ConfigManager.ConfigData cfg = ConfigManager.load();
         this.cols = Math.max(4, cfg.cols);
-        this.rows = Math.max(3, cfg.rows);
+        this.rows = Math.max(4, cfg.rows);
         this.allItems = ForgeRegistries.ITEMS.getValues().stream().collect(Collectors.toList());
         this.allItems.sort(Comparator.comparing(i -> {
             ResourceLocation k = ForgeRegistries.ITEMS.getKey(i);
@@ -92,106 +91,126 @@ public class ItemCollectorScreen extends Screen {
 
         int leftAreaWidth = this.width - rightPanelWidth - margin * 2;
         this.modTabsAreaWidth = leftAreaWidth;
-        int computed = Math.max(10, Math.min(24, leftAreaWidth / cols));
-        cellSize = Math.max(10, (int) (computed * 0.9));
+        this.cellSize = Math.max(16, Math.min(24, (leftAreaWidth - 20) / cols));
 
-        // Calculate positions for UI elements to avoid overlap
-        int currentY = 10;
+        // Header buttons
+        int headerY = 15;
+        int buttonWidth = 90;
+        int buttonSpacing = 8;
 
-        // Export buttons at the top
-        this.addRenderableWidget(Button.builder(Component.translatable("button.export_txt"), b -> exportTxt())
-                .bounds(margin, currentY, 100, 20).build());
-        this.addRenderableWidget(Button.builder(Component.translatable("button.export_json"), b -> exportJson())
-                .bounds(margin + 110, currentY, 100, 20).build());
-        this.addRenderableWidget(Button.builder(Component.translatable("button.clear_selection"), b -> SelectedItemsManager.clear())
-                .bounds(margin + 220, currentY, 120, 20).build());
+        this.addRenderableWidget(createStyledButton(
+                Component.translatable("button.export_txt"),
+                b -> exportTxt(),
+                margin, headerY, buttonWidth, 20
+        ));
 
-        currentY += 30;
+        this.addRenderableWidget(createStyledButton(
+                Component.translatable("button.export_json"),
+                b -> exportJson(),
+                margin + buttonWidth + buttonSpacing, headerY, buttonWidth, 20
+        ));
+
+        this.addRenderableWidget(createStyledButton(
+                Component.translatable("button.clear_selection"),
+                b -> SelectedItemsManager.clear(),
+                margin + (buttonWidth + buttonSpacing) * 2, headerY, buttonWidth + 20, 20
+        ));
+
+        int currentY = headerY + 30;
 
         // Mod tabs with scrolling
         addModTabButtons(margin, currentY, leftAreaWidth);
         currentY += 25;
 
-        // Type toggles - calculate how many rows we need
-        int typeButtonWidth = 78;
-        int typeButtonHeight = 16;
+        // Type toggles
+        int typeButtonWidth = 80;
+        int typeButtonHeight = 18;
         int typeButtonSpacing = 4;
         int typeButtonsPerRow = Math.max(1, (leftAreaWidth - margin) / (typeButtonWidth + typeButtonSpacing));
-        int typeRows = (int) Math.ceil((double) typeState.size() / typeButtonsPerRow);
 
         int tx = margin;
         int ty = currentY;
 
         for (String t : typeState.keySet()) {
             boolean on = typeState.get(t);
-            Button btn = Button.builder(Component.literal((on ? "[x] " : "[ ] ") + t), b -> {
-                boolean cur = typeState.get(t);
-                typeState.put(t, !cur);
-                b.setMessage(Component.literal((!cur ? "[x] " : "[ ] ") + t));
-                saveConfig();
-                rebuildFilteredIfNeeded(true);
-            }).bounds(tx, ty, typeButtonWidth, typeButtonHeight).build();
+            Button btn = createToggleButton(t, on, tx, ty, typeButtonWidth, typeButtonHeight);
             typeButtons.put(t, btn);
             this.addRenderableWidget(btn);
 
             tx += typeButtonWidth + typeButtonSpacing;
             if (tx + typeButtonWidth > leftAreaWidth - margin) {
                 tx = margin;
-                ty += typeButtonHeight + 2;
+                ty += typeButtonHeight + 4;
             }
         }
 
-        int typeButtonsBottomY = ty + typeButtonHeight;
-        currentY = typeButtonsBottomY + 10;
+        currentY = ty + typeButtonHeight + 10;
 
-        // Search fields
+        // Search field
         searchFieldX = margin;
         searchFieldY = currentY;
-        idSearchBox = new EditBox(this.font, searchFieldX, searchFieldY, leftAreaWidth - margin - 10, 18, Component.translatable("field.search"));
+        idSearchBox = new EditBox(this.font, searchFieldX, searchFieldY, leftAreaWidth - margin - 10, 20, Component.translatable("field.search"));
         idSearchBox.setValue(ConfigManager.load().lastSearch != null ? ConfigManager.load().lastSearch : "");
+        idSearchBox.setResponder(s -> rebuildFilteredIfNeeded(true));
         this.addRenderableWidget(idSearchBox);
 
-        currentY += 25;
-
-        // Advanced filter
-        advFieldX = margin;
-        advFieldY = currentY;
-        advancedFilterBox = new EditBox(this.font, advFieldX, advFieldY, leftAreaWidth - margin - 10, 18, Component.translatable("field.advanced"));
-        advancedFilterBox.setValue("");
-        this.addRenderableWidget(advancedFilterBox);
-
-        currentY += 25;
+        currentY += 30;
 
         // Filename field
         fileFieldX = margin;
         fileFieldY = currentY;
-        fileNameField = new EditBox(this.font, fileFieldX, fileFieldY, leftAreaWidth - margin - 10, 18, Component.translatable("field.filename"));
+        fileNameField = new EditBox(this.font, fileFieldX, fileFieldY, leftAreaWidth - margin - 10, 20, Component.translatable("field.filename"));
         fileNameField.setValue("items_dump");
         this.addRenderableWidget(fileNameField);
 
         currentY += 30;
 
         // Grid position
-        gridX0 = (leftAreaWidth - (cols * cellSize)) / 2 + margin;
+        gridX0 = margin + (leftAreaWidth - (cols * cellSize)) / 2;
         gridY0 = currentY;
 
         // Prev/Next buttons
-        int leftCenterX = gridX0 + (cols * cellSize) / 2;
         int btnW = 90;
-        int spacing = 12;
-        int btnY = gridY0 + rows * cellSize + 8;
-        int leftX = leftCenterX - (btnW * 2 + spacing) / 2;
+        int btnSpacing = 12;
+        int btnY = gridY0 + rows * cellSize + 12;
+        int btnPanelWidth = btnW * 2 + btnSpacing;
+        int btnPanelX = gridX0 + (cols * cellSize - btnPanelWidth) / 2;
 
-        this.addRenderableWidget(Button.builder(Component.translatable("button.prev"), b -> {
-            startIndex = Math.max(0, startIndex - cols * rows);
-        }).bounds(leftX, btnY, btnW, 20).build());
+        this.addRenderableWidget(createStyledButton(
+                Component.translatable("button.prev"),
+                b -> startIndex = Math.max(0, startIndex - cols * rows),
+                btnPanelX, btnY, btnW, 20
+        ));
 
-        this.addRenderableWidget(Button.builder(Component.translatable("button.next"), b -> {
-            startIndex = Math.min(Math.max(0, filtered.size() - cols * rows), startIndex + cols * rows);
-        }).bounds(leftX + btnW + spacing, btnY, btnW, 20).build());
+        this.addRenderableWidget(createStyledButton(
+                Component.translatable("button.next"),
+                b -> startIndex = Math.min(Math.max(0, filtered.size() - cols * rows), startIndex + cols * rows),
+                btnPanelX + btnW + btnSpacing, btnY, btnW, 20
+        ));
 
         // Initial filter
         rebuildFilteredIfNeeded(true);
+    }
+
+    private Button createStyledButton(Component text, Button.OnPress action, int x, int y, int width, int height) {
+        return Button.builder(text, action)
+                .bounds(x, y, width, height)
+                .createNarration(supplier -> text.copy())
+                .build();
+    }
+
+    private Button createToggleButton(String text, boolean active, int x, int y, int width, int height) {
+        Component displayText = Component.literal((active ? "§a✓ " : "§7○ ") + text);
+        return Button.builder(displayText, b -> {
+                    boolean cur = typeState.get(text);
+                    typeState.put(text, !cur);
+                    b.setMessage(Component.literal((!cur ? "§a✓ " : "§7○ ") + text));
+                    saveConfig();
+                    rebuildFilteredIfNeeded(true);
+                })
+                .bounds(x, y, width, height)
+                .createNarration(supplier -> Component.literal(text).copy())
+                .build();
     }
 
     private void addModTabButtons(int startX, int startY, int leftAreaWidth) {
@@ -205,18 +224,18 @@ public class ItemCollectorScreen extends Screen {
         modTabButtons.clear();
 
         // Left scroll button
-        modScrollLeft = Button.builder(Component.literal("◀"), b -> {
+        modScrollLeft = createStyledButton(Component.literal("◀"), b -> {
             modTabStart = Math.max(0, modTabStart - 1);
             updateModTabButtons();
-        }).bounds(x, y, 20, 16).build();
+        }, x, y, 22, 18);
         this.addRenderableWidget(modScrollLeft);
         modTabButtons.add(modScrollLeft);
-        x += 22;
+        x += 24;
 
         // Calculate how many mod tabs we can show
         int modTabWidth = 70;
         int modTabSpacing = 2;
-        visibleModTabs = Math.min((leftAreaWidth - 44) / (modTabWidth + modTabSpacing), modList.size() - modTabStart);
+        visibleModTabs = Math.min((leftAreaWidth - 48) / (modTabWidth + modTabSpacing), modList.size() - modTabStart);
 
         // Mod tabs
         for (int i = 0; i < visibleModTabs; i++) {
@@ -225,14 +244,15 @@ public class ItemCollectorScreen extends Screen {
 
             String modid = modList.get(idx);
             String displayName = modid.length() > 10 ? modid.substring(0, 10) + "..." : modid;
-            Component label = Component.literal(modid.equals(selectedMod) ? "[" + displayName + "]" : displayName);
+            boolean isSelected = modid.equals(selectedMod);
+            Component label = Component.literal(isSelected ? "§6" + displayName : displayName);
 
-            Button modBtn = Button.builder(label, b -> {
+            Button modBtn = createStyledButton(label, b -> {
                 selectedMod = modid;
                 saveConfig();
                 rebuildFilteredIfNeeded(true);
                 updateModTabButtons();
-            }).bounds(x, y, modTabWidth, 16).build();
+            }, x, y, modTabWidth, 18);
 
             this.addRenderableWidget(modBtn);
             modTabButtons.add(modBtn);
@@ -240,10 +260,10 @@ public class ItemCollectorScreen extends Screen {
         }
 
         // Right scroll button
-        modScrollRight = Button.builder(Component.literal("▶"), b -> {
+        modScrollRight = createStyledButton(Component.literal("▶"), b -> {
             modTabStart = Math.min(modList.size() - visibleModTabs, modTabStart + 1);
             updateModTabButtons();
-        }).bounds(x, y, 20, 16).build();
+        }, x, y, 22, 18);
         this.addRenderableWidget(modScrollRight);
         modTabButtons.add(modScrollRight);
 
@@ -266,8 +286,8 @@ public class ItemCollectorScreen extends Screen {
         modTabButtons.removeAll(buttonsToRemove);
 
         // Recreate mod tabs with updated selection
-        int x = margin + 22;
-        int y = 40;
+        int x = margin + 24;
+        int y = 45;
 
         int modTabWidth = 70;
         int modTabSpacing = 2;
@@ -278,14 +298,15 @@ public class ItemCollectorScreen extends Screen {
 
             String modid = modList.get(idx);
             String displayName = modid.length() > 10 ? modid.substring(0, 10) + "..." : modid;
-            Component label = Component.literal(modid.equals(selectedMod) ? "[" + displayName + "]" : displayName);
+            boolean isSelected = modid.equals(selectedMod);
+            Component label = Component.literal(isSelected ? "§6" + displayName : displayName);
 
-            Button modBtn = Button.builder(label, b -> {
+            Button modBtn = createStyledButton(label, b -> {
                 selectedMod = modid;
                 saveConfig();
                 rebuildFilteredIfNeeded(true);
                 updateModTabButtons();
-            }).bounds(x, y, modTabWidth, 16).build();
+            }, x, y, modTabWidth, 18);
 
             this.addRenderableWidget(modBtn);
             modTabButtons.add(modBtn);
@@ -329,13 +350,11 @@ public class ItemCollectorScreen extends Screen {
 
     private void rebuildFilteredIfNeeded(boolean force) {
         String idSearch = idSearchBox != null ? idSearchBox.getValue().trim() : "";
-        String adv = advancedFilterBox != null ? advancedFilterBox.getValue().trim() : "";
         Set<String> activeTypes = typeState.entrySet().stream().filter(Map.Entry::getValue).map(Map.Entry::getKey).collect(Collectors.toSet());
-        boolean changed = force || !Objects.equals(idSearch, lastIdSearch) || !Objects.equals(adv, lastAdvanced) || !Objects.equals(selectedMod, lastSelectedMod) || !Objects.equals(activeTypes, lastActiveTypes);
+        boolean changed = force || !Objects.equals(idSearch, lastIdSearch) || !Objects.equals(selectedMod, lastSelectedMod) || !Objects.equals(activeTypes, lastActiveTypes);
         if (!changed) return;
 
         lastIdSearch = idSearch;
-        lastAdvanced = adv;
         lastSelectedMod = selectedMod;
         lastActiveTypes = new HashSet<>(activeTypes);
 
@@ -369,52 +388,6 @@ public class ItemCollectorScreen extends Screen {
                     ok = true;
                 if (!ok) return false;
             }
-
-            if (!adv.isEmpty() && adv.startsWith("nbt:")) {
-                String expr = adv.substring(4).trim();
-                String keyPart = expr;
-                String op = null;
-                String val = null;
-
-                if (expr.contains(">")) {
-                    String[] sp = expr.split(">", 2);
-                    keyPart = sp[0].trim();
-                    op = ">";
-                    val = sp[1].trim();
-                } else if (expr.contains("<")) {
-                    String[] sp = expr.split("<", 2);
-                    keyPart = sp[0].trim();
-                    op = "<";
-                    val = sp[1].trim();
-                } else if (expr.contains("=")) {
-                    String[] sp = expr.split("=", 2);
-                    keyPart = sp[0].trim();
-                    op = "=";
-                    val = sp[1].trim();
-                } else {
-                    keyPart = expr.trim();
-                }
-
-                ItemStack st = new ItemStack(item);
-                CompoundTag tag = st.getTag();
-                if (tag == null || !tag.contains(keyPart)) return false;
-
-                if (op != null) {
-                    String raw = tag.getString(keyPart);
-                    if ((op.equals(">") || op.equals("<"))) {
-                        try {
-                            double dtag = Double.parseDouble(raw);
-                            double dval = Double.parseDouble(val);
-                            if (op.equals(">") && !(dtag > dval)) return false;
-                            if (op.equals("<") && !(dtag < dval)) return false;
-                        } catch (NumberFormatException e) {
-                            return false;
-                        }
-                    } else {
-                        if (!raw.equals(val)) return false;
-                    }
-                }
-            }
             return true;
         }).collect(Collectors.toList());
 
@@ -432,30 +405,27 @@ public class ItemCollectorScreen extends Screen {
     public void render(GuiGraphics g, int mouseX, int mouseY, float partialTicks) {
         this.renderBackground(g);
 
-        // Сбрасываем текст помощи
+        // Сбрасываем текст помощи и индекс наведенного предмета
         currentHelpText = null;
+        hoveredItemIndex = -1;
 
-        // Проверяем наведение на текстовые поля и устанавливаем соответствующий текст помощи
-        if (isMouseOver(mouseX, mouseY, fileFieldX, fileFieldY, fileNameField.getWidth(), 18)) {
+        // Проверяем наведение на элементы интерфейса
+        if (isMouseOver(mouseX, mouseY, fileFieldX, fileFieldY, fileNameField.getWidth(), 20)) {
             currentHelpText = List.of(
                     Component.translatable("help.filename.line1"),
                     Component.translatable("help.filename.line2")
             );
-        } else if (isMouseOver(mouseX, mouseY, searchFieldX, searchFieldY, idSearchBox.getWidth(), 18)) {
+        } else if (isMouseOver(mouseX, mouseY, searchFieldX, searchFieldY, idSearchBox.getWidth(), 20)) {
             currentHelpText = List.of(
                     Component.translatable("help.search.line1"),
                     Component.translatable("help.search.line2")
             );
-        } else if (isMouseOver(mouseX, mouseY, advFieldX, advFieldY, advancedFilterBox.getWidth(), 18)) {
-            currentHelpText = List.of(
-                    Component.translatable("help.advanced.line1"),
-                    Component.translatable("help.advanced.example1"),
-                    Component.translatable("help.advanced.example2"),
-                    Component.translatable("help.advanced.example3")
-            );
+        } else {
+            // Проверяем наведение на сетку предметов
+            hoveredItemIndex = getIndexAt(mouseX, mouseY);
         }
 
-        // Draw grid
+        // Рисуем сетку предметов с улучшенным оформлением
         int idx = startIndex;
         for (int r = 0; r < rows; r++) {
             for (int c = 0; c < cols; c++) {
@@ -468,16 +438,23 @@ public class ItemCollectorScreen extends Screen {
                 Item item = filtered.get(idx);
                 ItemStack stack = new ItemStack(item);
 
-                // Cell background
-                g.fill(x - 1, y - 1, x + cellSize - 1, y + cellSize - 1, 0xFF1E1E1E);
+                // Cell background with border
+                g.fill(x - 1, y - 1, x + cellSize + 1, y + cellSize + 1, BORDER_COLOR);
+                g.fill(x, y, x + cellSize, y + cellSize, 0xFF2D2D2D);
+
+                // Hover highlight
+                if (idx == hoveredItemIndex) {
+                    g.fill(x, y, x + cellSize, y + cellSize, HIGHLIGHT_COLOR);
+                }
 
                 // Item render
-                g.renderItem(stack, x + 1, y + 1);
+                g.renderItem(stack, x + 2, y + 2);
+                g.renderItemDecorations(this.font, stack, x + 2, y + 2);
 
                 // Selection highlight
                 ResourceLocation key = ForgeRegistries.ITEMS.getKey(item);
                 if (key != null && SelectedItemsManager.isSelected(key)) {
-                    g.fill(x - 1, y - 1, x + cellSize - 1, y + cellSize - 1, 0x80FFFFFF);
+                    g.fill(x, y, x + cellSize, y + cellSize, SELECTED_COLOR);
                 }
                 idx++;
             }
@@ -486,72 +463,87 @@ public class ItemCollectorScreen extends Screen {
         // Draw widgets
         super.render(g, mouseX, mouseY, partialTicks);
 
-        // RIGHT PANEL
-        int rightX = this.width - rightPanelWidth - margin;
-        int rightY = 20;
+        // RIGHT PANEL with improved styling
+        int rightX = this.width - rightPanelWidth;
+        int rightY = 0;
         int rightW = rightPanelWidth;
-        int rightH = this.height - 40;
+        int rightH = this.height;
 
-        // Panel background
-        g.fill(rightX, rightY, rightX + rightW, rightY + rightH, 0xF0100010);
-        g.fill(rightX + 2, rightY + 2, rightX + rightW - 2, rightY + rightH - 2, 0xCC000000);
+        // Panel background with gradient
+        g.fill(rightX, rightY, rightX + rightW, rightY + rightH, PANEL_BG_COLOR);
+        g.fill(rightX, rightY, rightX + 2, rightY + rightH, 0xFF555555);
 
         // Panel title
-        g.drawString(this.font, Component.translatable("panel.details.title").getString(), rightX + rightPanelPadding, rightY + rightPanelPadding, 0xFFFFFF, false);
+        g.drawString(this.font, Component.translatable("panel.details.title").withStyle(ChatFormatting.GOLD),
+                rightX + rightPanelPadding, rightY + rightPanelPadding, 0xFFFFFF, false);
 
         // Hovered item details or instructions
-        int hovered = getIndexAt(mouseX, mouseY);
-        int contentY = rightY + rightPanelPadding + 14;
+        int contentY = rightY + rightPanelPadding + 16;
         int lineH = this.font.lineHeight + 2;
         int maxTextWidth = rightW - rightPanelPadding * 2;
 
-        if (hovered != -1 && hovered < filtered.size()) {
-            Item item = filtered.get(hovered);
+        if (hoveredItemIndex != -1 && hoveredItemIndex < filtered.size()) {
+            Item item = filtered.get(hoveredItemIndex);
             ItemStack stack = new ItemStack(item);
             List<Component> info = buildDetailedInfo(item, stack);
 
             for (Component line : info) {
                 if (contentY > rightY + rightH - 20) break;
 
-                // Split long lines into multiple lines
                 List<Component> wrappedLines = wrapText(line, maxTextWidth);
                 for (Component wrappedLine : wrappedLines) {
                     if (contentY > rightY + rightH - 20) break;
                     g.drawString(this.font, wrappedLine, rightX + rightPanelPadding, contentY, 0xFFFFFF, false);
                     contentY += lineH;
                 }
+                contentY += 2; // Add spacing between paragraphs
+            }
+
+            // Add selection status
+            ResourceLocation key = ForgeRegistries.ITEMS.getKey(item);
+            if (key != null) {
+                boolean isSelected = SelectedItemsManager.isSelected(key);
+                Component status = isSelected ?
+                        Component.translatable("status.selected").withStyle(ChatFormatting.GREEN) :
+                        Component.translatable("status.not_selected").withStyle(ChatFormatting.GRAY);
+
+                g.drawString(this.font, status, rightX + rightPanelPadding, contentY, 0xFFFFFF, false);
+                contentY += lineH + 4;
+
+                // Add click hint
+                Component hint = Component.translatable("hint.click_to_toggle").withStyle(ChatFormatting.ITALIC, ChatFormatting.GRAY);
+                g.drawString(this.font, hint, rightX + rightPanelPadding, contentY, 0xAAAAAA, false);
             }
         } else if (currentHelpText != null) {
-            // Отображаем текст помощи вместо стандартного сообщения
             for (Component line : currentHelpText) {
                 if (contentY > rightY + rightH - 20) break;
 
-                // Split long lines into multiple lines
                 List<Component> wrappedLines = wrapText(line, maxTextWidth);
                 for (Component wrappedLine : wrappedLines) {
                     if (contentY > rightY + rightH - 20) break;
                     g.drawString(this.font, wrappedLine, rightX + rightPanelPadding, contentY, 0xBBBBBB, false);
                     contentY += lineH;
                 }
+                contentY += 4;
             }
         } else {
-            // Стандартное сообщение, когда нет наведения
             List<Component> help = List.of(
-                    Component.translatable("panel.details.empty_line1"),
-                    Component.translatable("panel.details.empty_line2"),
-                    Component.translatable("panel.details.empty_line3")
+                    Component.translatable("panel.details.empty_line1").withStyle(ChatFormatting.GRAY),
+                    Component.translatable("panel.details.empty_line2").withStyle(ChatFormatting.GRAY),
+                    Component.literal(""),
+                    Component.translatable("panel.details.empty_line3").withStyle(ChatFormatting.ITALIC, ChatFormatting.DARK_GRAY)
             );
 
             for (Component line : help) {
                 if (contentY > rightY + rightH - 20) break;
 
-                // Split long lines into multiple lines
                 List<Component> wrappedLines = wrapText(line, maxTextWidth);
                 for (Component wrappedLine : wrappedLines) {
                     if (contentY > rightY + rightH - 20) break;
                     g.drawString(this.font, wrappedLine, rightX + rightPanelPadding, contentY, 0xBBBBBB, false);
                     contentY += lineH;
                 }
+                contentY += 2;
             }
         }
     }
@@ -612,54 +604,6 @@ public class ItemCollectorScreen extends Screen {
 
         // Model path
         if (id != null) lines.add(Component.literal("Model path: " + id.getNamespace() + ":item/" + id.getPath()).withStyle(ChatFormatting.GRAY));
-
-        // Basic properties
-        lines.add(Component.literal("Max stack: " + item.getMaxStackSize(new ItemStack(item))).withStyle(ChatFormatting.GRAY));
-
-        int maxDamage = stack.getMaxDamage();
-        if (maxDamage > 0) lines.add(Component.literal("Max damage: " + maxDamage).withStyle(ChatFormatting.GRAY));
-
-        // Armor slot
-        if (item instanceof ArmorItem a) {
-            EquipmentSlot slot = a.getType().getSlot();
-            lines.add(Component.literal("Armor slot: " + a.getType().getName() + " (" + slot.getName() + ")").withStyle(ChatFormatting.GRAY));
-        }
-
-        // Food info
-        if (item.isEdible()) {
-            lines.add(Component.literal("Edible: yes").withStyle(ChatFormatting.GRAY));
-            try {
-                var props = item.getFoodProperties();
-                if (props != null) {
-                    lines.add(Component.literal(" Nutrition: " + props.getNutrition() + ", Saturation: " + props.getSaturationModifier()).withStyle(ChatFormatting.GRAY));
-                }
-            } catch (Throwable ignored) {
-            }
-        }
-
-        // Enchantments
-        Map<Enchantment, Integer> ench = EnchantmentHelper.getEnchantments(stack);
-        if (!ench.isEmpty()) {
-            lines.add(Component.literal("Enchantments:").withStyle(ChatFormatting.GRAY));
-            ench.forEach((en, lvl) -> lines.add(Component.literal(" " + en.getDescriptionId() + " lvl " + lvl).withStyle(ChatFormatting.GRAY)));
-        }
-
-        // NBT preview
-        CompoundTag tag = stack.getTag();
-        if (tag != null && !tag.isEmpty()) {
-            String s = tag.toString();
-            if (s.length() > 800) s = s.substring(0, 800) + "...";
-            lines.add(Component.literal("NBT: " + s).withStyle(ChatFormatting.GRAY));
-
-            // Common NBT tags
-            if (tag.contains("CustomModelData")) lines.add(Component.literal("CustomModelData: " + tag.getInt("CustomModelData")).withStyle(ChatFormatting.GRAY));
-            if (tag.contains("Unbreakable")) lines.add(Component.literal("Unbreakable: " + tag.getBoolean("Unbreakable")).withStyle(ChatFormatting.GRAY));
-            if (tag.contains("Damage")) lines.add(Component.literal("Damage (nbt): " + tag.getInt("Damage")).withStyle(ChatFormatting.GRAY));
-        }
-
-        // Other flags
-        if (stack.isEnchanted()) lines.add(Component.literal("Has enchantments").withStyle(ChatFormatting.GRAY));
-        if (stack.hasCustomHoverName()) lines.add(Component.literal("Has custom name").withStyle(ChatFormatting.GRAY));
 
         return lines;
     }

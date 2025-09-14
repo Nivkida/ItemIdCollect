@@ -18,8 +18,11 @@
   "help.filename.line2": "Example: my_items_list",
   "help.search.line1": "Search by ID or display name.",
   "help.search.line2": "Examples: 'diamond' or 'minecraft:iron'",
-  "help.advanced.line1": "Advanced NBT filter (use 'nbt:' prefix).",
-  "help.advanced.example1": "Example: nbt:Unbreakable=true",
-  "help.advanced.example2": "Example: nbt:CustomModelData=1",
-  "help.advanced.example3": "Example: nbt:Damage>10"
+  "panel.details.title": "Item Details",
+  "status.selected": "Selected",
+  "status.not_selected": "Not selected",
+  "hint.click_to_toggle": "Click to toggle selection",
+  "panel.details.empty_line1": "Hover over an item",
+  "panel.details.empty_line2": "to see details",
+  "panel.details.empty_line3": "Click on an item to add/remove from export list"
 }

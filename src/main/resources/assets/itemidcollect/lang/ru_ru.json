@@ -18,8 +18,11 @@
   "help.filename.line2": "Пример: my_items_list",
   "help.search.line1": "Поиск по ID или отображаемому имени.",
   "help.search.line2": "Примеры: 'diamond' или 'minecraft:iron'",
-  "help.advanced.line1": "Дополнительный NBT-фильтр (используйте префикс 'nbt:').",
-  "help.advanced.example1": "Пример: nbt:Unbreakable=true",
-  "help.advanced.example2": "Пример: nbt:CustomModelData=1",
-  "help.advanced.example3": "Пример: nbt:Damage>10"
+  "panel.details.title": "Информация о предмете",
+  "status.selected": "Выбран",
+  "status.not_selected": "Не выбран",
+  "hint.click_to_toggle": "Кликните, чтобы выбрать/снять выделение",
+  "panel.details.empty_line1": "Наведите на предмет,",
+  "panel.details.empty_line2": "чтобы увидеть информацию",
+  "panel.details.empty_line3": "Кликните по предмету, чтобы добавить/убрать из списка экспорта"
 }
